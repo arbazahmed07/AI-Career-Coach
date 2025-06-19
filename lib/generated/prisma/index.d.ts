@@ -6339,7 +6339,7 @@ export namespace Prisma {
      * Create a IndustryInsight.
      * @param {IndustryInsightCreateArgs} args - Arguments to create a IndustryInsight.
      * @example
-     * // Create one IndustryInsight
+     * // Create one IndustryInsightindustryInsight.findUnique
      * const IndustryInsight = await prisma.industryInsight.create({
      *   data: {
      *     // ... data to create a IndustryInsight

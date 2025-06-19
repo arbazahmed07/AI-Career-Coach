@@ -1,31 +1,85 @@
-"use server"
+"use server";
 
-import {auth} from "@clerk/nextjs/server"
 import { db } from "@/lib/prisma";
-export async function updateUser(data) {
-  const {userId}=await auth();
-  if(!userId) throw new Error("Unauthorized")
+import { auth } from "@clerk/nextjs/server";
+import { revalidatePath } from "next/cache";
+import { generateAIInsights } from "./dashboard";
 
-    const user =await db.User.findUnique({
-      where:{
-        clerkUserId:userId,
+export async function updateUser(data) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Unauthorized");
+
+  const user = await db.user.findUnique({
+    where: { clerkUserId: userId },
+  });
+
+  if (!user) throw new Error("User not found");
+
+  try {
+    const result = await db.$transaction(
+      async (tx) => {
+        // Check if the industry insight already exists
+        let industryInsight = await tx.industryInsight.findUnique({
+          where: {
+            industry: data.industry,
+          },
+        });
+
+        // If not, create it
+        if (!industryInsight) {
+          const insights = await generateAIInsights(data.industry);
+
+          industryInsight = await tx.industryInsight.create({
+            data: {
+              industry: data.industry,
+              ...insights,
+              nextUpdate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+            },
+          });
+        }
+
+        // Update the user
+        const updatedUser = await tx.user.update({
+          where: {
+            id: user.id,
+          },
+          data: {
+            industry: data.industry,
+            experience: data.experience,
+            bio: data.bio,
+            skills: data.skills,
+          },
+        });
+
+        return { updatedUser, industryInsight };
+      },
+      {
+        timeout: 10000,
       }
-    })
-    if(!user) throw new Error("User Not found");
-    try {
-    const result=await db.$transaction(async()=>{
-       //find if the industry exists
-      //if industry doesnt exist create it with defalut values 
-      //update the user
+    );
+
+    revalidatePath("/");
+    return result.updatedUser;
+  } catch (error) {
+    console.error("Error updating user and industry:", error.message);
+    throw new Error("Failed to update profile");
+  }
+}
+
+export async function getUserOnboardingStatus() {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Unauthorized");
+
+  const user = await db.user.findUnique({
+    where: { clerkUserId: userId },
+    select: {
+      industry: true,
     },
-  {
-    timeout:10000,
-  })
-      return result.user;
-    } catch (error) {
-      console.error("Error updating user and industry:",error.message);
-      throw new Error("Failed to update profile")
-      
-    }
-  
+  });
+
+  if (!user) throw new Error("User not found");
+
+  return {
+    isOnboarded: !!user?.industry,
+  };
 }
